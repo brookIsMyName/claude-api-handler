@@ -102,7 +102,7 @@ export default function InputArea({ onSend, disabled }) {
         <textarea
           ref={textareaRef}
           className="chat-input"
-          placeholder="Message Claude…"
+          placeholder="Describe the website you want to build…"
           rows={1}
           value={text}
           onChange={(event) => setText(event.target.value)}

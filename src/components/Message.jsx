@@ -2,12 +2,15 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { downloadBase64File, fileIcon } from '../utils/download'
 
-export default function Message({ message }) {
+export default function Message({ message, onPreviewWebsite }) {
   const isUser = message.role === 'user'
+  const hasOutput =
+    (message.files?.length ?? 0) > 0 ||
+    (message.websites?.length ?? 0) > 0
 
   return (
     <div className={`message ${isUser ? 'message-user' : 'message-assistant'}`}>
-      <div className="message-avatar">{isUser ? 'You' : 'C'}</div>
+      <div className="message-avatar">{isUser ? 'You' : 'W'}</div>
       <div className="message-body">
         {message.attachments?.length > 0 && (
           <div className="message-attachments">
@@ -18,6 +21,42 @@ export default function Message({ message }) {
                 ) : (
                   <span className="attachment-name">{file.name}</span>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {message.websites?.length > 0 && (
+          <div className="output-files">
+            {message.websites.map((website) => (
+              <div key={website.name} className="website-card">
+                <div className="website-card-header">
+                  <span className="output-file-icon">🌐</span>
+                  <div className="output-file-info">
+                    <span className="output-file-name">{website.projectName}</span>
+                    <span className="output-file-action">
+                      {website.files?.length ?? 0} files · ready to preview
+                    </span>
+                  </div>
+                </div>
+                <div className="website-card-actions">
+                  <button type="button" className="website-btn primary" onClick={() => onPreviewWebsite?.(website)}>
+                    Preview
+                  </button>
+                  <button
+                    type="button"
+                    className="website-btn"
+                    onClick={() =>
+                      downloadBase64File({
+                        name: website.name,
+                        mimeType: website.mimeType ?? 'application/zip',
+                        data: website.data,
+                      })
+                    }
+                  >
+                    Download ZIP
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -47,7 +86,7 @@ export default function Message({ message }) {
         ) : (
           <div className="message-markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content || (message.files?.length ? '' : '…')}
+              {message.content || (hasOutput ? '' : '…')}
             </ReactMarkdown>
           </div>
         )}

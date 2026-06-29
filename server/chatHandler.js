@@ -1,7 +1,7 @@
-import { executeTool, SYSTEM_PROMPT, TOOLS } from './tools.js'
+import { executeTool, SYSTEM_PROMPT, TOOLS, toolStatusLabel } from './tools.js'
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-const MAX_TOOL_ITERATIONS = 8
+const MAX_TOOL_ITERATIONS = 12
 
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
@@ -46,7 +46,7 @@ async function runAgentLoop(apiKey, model, messages, res) {
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     sendSse(res, 'status', {
-      message: iteration === 0 ? 'Thinking…' : 'Creating file…',
+      message: iteration === 0 ? 'Thinking…' : 'Building…',
     })
 
     const response = await callAnthropic(apiKey, model, apiMessages)
@@ -69,13 +69,13 @@ async function runAgentLoop(apiKey, model, messages, res) {
     for (const block of assistantContent) {
       if (block.type !== 'tool_use') continue
 
-      const label =
-        block.name === 'create_pptx'
-          ? 'Building presentation…'
-          : `Creating ${block.input?.filename ?? 'file'}…`
-      sendSse(res, 'status', { message: label })
+      sendSse(res, 'status', { message: toolStatusLabel(block.name, block.input) })
 
       const result = await executeTool(block.name, block.input)
+
+      if (result.website) {
+        sendSse(res, 'website', result.website)
+      }
 
       if (result.file) {
         sendSse(res, 'file', result.file)
@@ -92,11 +92,11 @@ async function runAgentLoop(apiKey, model, messages, res) {
   }
 
   sendSse(res, 'text', {
-    delta: '\n\n(I reached the maximum number of file operations for this turn.)',
+    delta: '\n\n(I reached the maximum number of build steps for this turn.)',
   })
 }
 
-export function createChatHandler(apiKey, defaultModel = 'claude-haiku-4-5-20251001') {
+export function createChatHandler(apiKey, defaultModel = 'claude-opus-4-8') {
   return async (req, res) => {
     if (req.method !== 'POST') {
       res.statusCode = 405

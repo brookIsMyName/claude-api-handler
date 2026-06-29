@@ -31,6 +31,14 @@ function parseSseChunk(buffer, onEvent) {
   return remainder
 }
 
+function handleSseEvent(eventType, data, handlers) {
+  if (eventType === 'text') handlers.onDelta(data.delta)
+  if (eventType === 'file') handlers.onFile(data)
+  if (eventType === 'website') handlers.onWebsite(data)
+  if (eventType === 'status') handlers.onStatus?.(data.message)
+  if (eventType === 'error') throw new Error(data.message)
+}
+
 async function streamChat(messages, handlers) {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -66,21 +74,11 @@ async function streamChat(messages, handlers) {
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
-    buffer = parseSseChunk(buffer, (eventType, data) => {
-      if (eventType === 'text') handlers.onDelta(data.delta)
-      if (eventType === 'file') handlers.onFile(data)
-      if (eventType === 'status') handlers.onStatus?.(data.message)
-      if (eventType === 'error') throw new Error(data.message)
-    })
+    buffer = parseSseChunk(buffer, (eventType, data) => handleSseEvent(eventType, data, handlers))
   }
 
   if (buffer.trim()) {
-    parseSseChunk(`${buffer}\n\n`, (eventType, data) => {
-      if (eventType === 'text') handlers.onDelta(data.delta)
-      if (eventType === 'file') handlers.onFile(data)
-      if (eventType === 'status') handlers.onStatus?.(data.message)
-      if (eventType === 'error') throw new Error(data.message)
-    })
+    parseSseChunk(`${buffer}\n\n`, (eventType, data) => handleSseEvent(eventType, data, handlers))
   }
 }
 
@@ -89,6 +87,7 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
+  const [activeWebsite, setActiveWebsite] = useState(null)
 
   const sendMessage = useCallback(
     async (text, attachments = []) => {
@@ -109,7 +108,7 @@ export function useChat() {
       const nextMessages = [
         ...messages,
         userMessage,
-        { id: assistantId, role: 'assistant', content: '', files: [] },
+        { id: assistantId, role: 'assistant', content: '', files: [], websites: [] },
       ]
 
       setMessages(nextMessages)
@@ -136,6 +135,16 @@ export function useChat() {
               ),
             )
           },
+          onWebsite: (website) => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? { ...message, websites: [...(message.websites ?? []), website] }
+                  : message,
+              ),
+            )
+            setActiveWebsite(website)
+          },
           onStatus: setStatus,
         })
       } catch (err) {
@@ -153,7 +162,17 @@ export function useChat() {
     setMessages([])
     setError(null)
     setStatus(null)
+    setActiveWebsite(null)
   }, [])
 
-  return { messages, isLoading, status, error, sendMessage, clearChat }
+  return {
+    messages,
+    isLoading,
+    status,
+    error,
+    activeWebsite,
+    setActiveWebsite,
+    sendMessage,
+    clearChat,
+  }
 }
