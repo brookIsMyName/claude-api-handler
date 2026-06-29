@@ -1,4 +1,4 @@
-export const SYSTEM_PROMPT = `You are an elite web designer and front-end engineer. Your specialty is building beautiful, production-quality websites with exceptional UX and UI design.
+export const BUILD_SYSTEM_PROMPT = `You are an elite web designer and front-end engineer. Your specialty is building beautiful, production-quality websites with exceptional UX and UI design.
 
 ## Your core mission
 When the user wants a website, landing page, portfolio, dashboard, component, or any web UI — you BUILD it using the create_website tool. Never just describe a design in text when they want something they can see and use.
@@ -22,11 +22,52 @@ When the user wants a website, landing page, portfolio, dashboard, component, or
 - **create_website** — for ANY website, landing page, web app UI, or multi-file web project. Include ALL files in one call.
 - **create_pptx** — for presentations only
 - **create_file** — for single standalone files (not full websites)
+- **deliver_code_fix** — when returning fixed/debugged code files
 
-## Iteration
-When the user asks to revise a website, call create_website again with the complete updated project (all files), incorporating their feedback.
+## Code debugging (side feature)
+If the user pastes or uploads code to debug in build mode, help them: identify the bug, explain root cause clearly, show the fix, and use deliver_code_fix to return corrected file(s). Do NOT use create_website for debugging unless they explicitly want a rebuilt site.
 
 After delivering a website, briefly highlight key design decisions. Keep text concise when the preview speaks for itself.`
+
+export const DEBUG_SYSTEM_PROMPT = `You are an expert software engineer and debugger. The user is coming to you with code that has problems — your job is to find bugs, explain them clearly, and deliver working fixes.
+
+## How to handle every request
+1. **Read all attached/pasted code carefully** — treat uploaded files as the source of truth
+2. **Identify the bug(s)** — syntax errors, logic errors, runtime issues, wrong APIs, missing imports, type errors, edge cases
+3. **Explain clearly** — what was wrong, why it failed, and how you fixed it (use markdown with code blocks)
+4. **Deliver fixes** — ALWAYS use deliver_code_fix to return the complete corrected file(s) for download. Never leave the user with only a description when they need fixed code.
+
+## Debugging standards
+- Be precise: cite line numbers and specific issues when possible
+- Provide minimal, correct fixes — don't rewrite unrelated code
+- If multiple files are involved, fix all of them and return each one
+- If the error message or stack trace is provided, use it to pinpoint the issue
+- If you need more context, ask — but still analyze what you have first
+- Support any language: JavaScript, TypeScript, Python, Java, C/C++, Go, Rust, PHP, Ruby, SQL, HTML/CSS, React, etc.
+
+## Tool usage
+- **deliver_code_fix** — PRIMARY tool. Return fixed code files after debugging. Include the full corrected file contents.
+- **create_file** — for a single new helper file if needed
+- Do NOT use create_website unless the user explicitly asks you to build a website
+- Do NOT use create_pptx unless explicitly asked for a presentation
+
+## Response format
+Structure your reply as:
+1. **Problem** — what's broken
+2. **Cause** — why it happens
+3. **Fix** — what you changed
+Then deliver the fixed files via deliver_code_fix.`
+
+export function getSystemPrompt(mode) {
+  return mode === 'debug' ? DEBUG_SYSTEM_PROMPT : BUILD_SYSTEM_PROMPT
+}
+
+export function getTools(mode) {
+  if (mode === 'debug') {
+    return TOOLS.filter((tool) => tool.name !== 'create_website' && tool.name !== 'create_pptx')
+  }
+  return TOOLS
+}
 
 export const TOOLS = [
   {
@@ -61,6 +102,33 @@ export const TOOLS = [
         },
       },
       required: ['project_name', 'files'],
+    },
+  },
+  {
+    name: 'deliver_code_fix',
+    description:
+      'Deliver one or more fixed/corrected code files after debugging. Always use this to return repaired source code the user can download.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          description: 'Fixed files with complete corrected contents',
+          items: {
+            type: 'object',
+            properties: {
+              filename: { type: 'string', description: 'Filename with extension, e.g. app.js' },
+              content: { type: 'string', description: 'Full corrected file contents' },
+            },
+            required: ['filename', 'content'],
+          },
+        },
+        summary: {
+          type: 'string',
+          description: 'Brief summary of what was fixed',
+        },
+      },
+      required: ['files'],
     },
   },
   {
@@ -106,7 +174,7 @@ export const TOOLS = [
   {
     name: 'create_file',
     description:
-      'Create a single downloadable text-based file (txt, md, csv, json, etc.). Do NOT use this for full websites — use create_website instead.',
+      'Create a single downloadable text-based file (txt, md, csv, json, code, etc.). Do NOT use this for full websites — use create_website instead.',
     input_schema: {
       type: 'object',
       properties: {
@@ -119,14 +187,14 @@ export const TOOLS = [
   },
 ]
 
-function toolStatusLabel(name, input) {
+export function toolStatusLabel(name, input, mode) {
   if (name === 'create_website') return `Building ${input?.project_name ?? 'website'}…`
   if (name === 'create_pptx') return 'Building presentation…'
+  if (name === 'deliver_code_fix') return 'Preparing fixed code…'
   if (name === 'create_file') return `Creating ${input?.filename ?? 'file'}…`
+  if (mode === 'debug') return 'Analyzing code…'
   return 'Working…'
 }
-
-export { toolStatusLabel }
 
 export async function executeTool(name, input) {
   try {
@@ -137,6 +205,18 @@ export async function executeTool(name, input) {
       return {
         content: `Successfully built "${website.projectName}" with ${fileCount} file(s). The user can preview it live and download the ZIP.`,
         website,
+      }
+    }
+
+    if (name === 'deliver_code_fix') {
+      const { createTextFile } = await import('./fileGenerators/textFile.js')
+      const files = (input.files ?? []).map((file) =>
+        createTextFile({ filename: file.filename, content: file.content }),
+      )
+      const names = files.map((file) => file.name).join(', ')
+      return {
+        content: `Delivered fixed file(s): ${names}. ${input.summary ?? ''}`.trim(),
+        files,
       }
     }
 

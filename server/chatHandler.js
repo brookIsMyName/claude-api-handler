@@ -1,4 +1,4 @@
-import { executeTool, SYSTEM_PROMPT, TOOLS, toolStatusLabel } from './tools.js'
+import { executeTool, getSystemPrompt, getTools, toolStatusLabel } from './tools.js'
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 const MAX_TOOL_ITERATIONS = 12
@@ -16,7 +16,7 @@ function sendSse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
-async function callAnthropic(apiKey, model, messages) {
+async function callAnthropic(apiKey, model, messages, mode) {
   const response = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
     headers: {
@@ -27,8 +27,8 @@ async function callAnthropic(apiKey, model, messages) {
     body: JSON.stringify({
       model,
       max_tokens: 16384,
-      system: SYSTEM_PROMPT,
-      tools: TOOLS,
+      system: getSystemPrompt(mode),
+      tools: getTools(mode),
       messages,
     }),
   })
@@ -41,15 +41,22 @@ async function callAnthropic(apiKey, model, messages) {
   return response.json()
 }
 
-async function runAgentLoop(apiKey, model, messages, res) {
+async function runAgentLoop(apiKey, model, messages, res, mode) {
   const apiMessages = [...messages]
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     sendSse(res, 'status', {
-      message: iteration === 0 ? 'Thinking…' : 'Building…',
+      message:
+        iteration === 0
+          ? mode === 'debug'
+            ? 'Analyzing code…'
+            : 'Thinking…'
+          : mode === 'debug'
+            ? 'Preparing fix…'
+            : 'Building…',
     })
 
-    const response = await callAnthropic(apiKey, model, apiMessages)
+    const response = await callAnthropic(apiKey, model, apiMessages, mode)
     const assistantContent = response.content ?? []
 
     apiMessages.push({ role: 'assistant', content: assistantContent })
@@ -69,7 +76,7 @@ async function runAgentLoop(apiKey, model, messages, res) {
     for (const block of assistantContent) {
       if (block.type !== 'tool_use') continue
 
-      sendSse(res, 'status', { message: toolStatusLabel(block.name, block.input) })
+      sendSse(res, 'status', { message: toolStatusLabel(block.name, block.input, mode) })
 
       const result = await executeTool(block.name, block.input)
 
@@ -79,6 +86,12 @@ async function runAgentLoop(apiKey, model, messages, res) {
 
       if (result.file) {
         sendSse(res, 'file', result.file)
+      }
+
+      if (result.files) {
+        for (const file of result.files) {
+          sendSse(res, 'file', file)
+        }
       }
 
       toolResults.push({
@@ -92,7 +105,7 @@ async function runAgentLoop(apiKey, model, messages, res) {
   }
 
   sendSse(res, 'text', {
-    delta: '\n\n(I reached the maximum number of build steps for this turn.)',
+    delta: '\n\n(I reached the maximum number of steps for this turn.)',
   })
 }
 
@@ -117,13 +130,13 @@ export function createChatHandler(apiKey, defaultModel = 'claude-opus-4-8') {
 
     try {
       const body = await readRequestBody(req)
-      const { messages, model } = JSON.parse(body)
+      const { messages, model, mode = 'build' } = JSON.parse(body)
 
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
 
-      await runAgentLoop(apiKey, model || defaultModel, messages, res)
+      await runAgentLoop(apiKey, model || defaultModel, messages, res, mode)
       sendSse(res, 'done', {})
       res.end()
     } catch (err) {

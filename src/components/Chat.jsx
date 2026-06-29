@@ -9,6 +9,8 @@ export default function Chat() {
     isLoading,
     status,
     error,
+    mode,
+    setMode,
     activeWebsite,
     setActiveWebsite,
     sendMessage,
@@ -20,10 +22,12 @@ export default function Chat() {
       <div className="chat-app">
         <header className="chat-header">
           <div className="chat-brand">
-            <span className="brand-icon">W</span>
+            <span className="brand-icon">{mode === 'debug' ? 'D' : 'W'}</span>
             <div>
-              <h1>Web Studio</h1>
-              <span className="model-badge">Opus 4.8 · UX/UI focused</span>
+              <h1>{mode === 'debug' ? 'Code Debug' : 'Web Studio'}</h1>
+              <span className="model-badge">
+                Opus 4.8 · {mode === 'debug' ? 'bug fixing' : 'UX/UI + debug'}
+              </span>
             </div>
           </div>
           <button type="button" className="new-chat-button" onClick={clearChat} disabled={isLoading}>
@@ -36,13 +40,19 @@ export default function Chat() {
             messages={messages}
             isLoading={isLoading}
             status={status}
+            mode={mode}
             onPreviewWebsite={setActiveWebsite}
           />
           {error && <div className="chat-error">{error}</div>}
         </main>
 
         <footer className="chat-footer">
-          <InputArea onSend={sendMessage} disabled={isLoading} />
+          <InputArea
+            onSend={sendMessage}
+            disabled={isLoading}
+            mode={mode}
+            onModeChange={setMode}
+          />
         </footer>
       </div>
 

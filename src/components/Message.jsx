@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isCodeAttachment } from '../utils/files'
 import { downloadBase64File, fileIcon } from '../utils/download'
 
 export default function Message({ message, onPreviewWebsite }) {
@@ -19,7 +20,10 @@ export default function Message({ message, onPreviewWebsite }) {
                 {file.type === 'image' && file.preview ? (
                   <img src={file.preview} alt={file.name} className="attachment-image" />
                 ) : (
-                  <span className="attachment-name">{file.name}</span>
+                  <span className="attachment-name">
+                    {isCodeAttachment(file) ? '💻 ' : ''}
+                    {file.name}
+                  </span>
                 )}
               </div>
             ))}
@@ -74,7 +78,11 @@ export default function Message({ message, onPreviewWebsite }) {
                 <span className="output-file-icon">{fileIcon(file.name)}</span>
                 <span className="output-file-info">
                   <span className="output-file-name">{file.name}</span>
-                  <span className="output-file-action">Click to download</span>
+                  <span className="output-file-action">
+                    {file.name.match(/\.(js|ts|jsx|tsx|py|java|go|rs|rb|php|cs|cpp|c|html|css)$/i)
+                      ? 'Fixed code · click to download'
+                      : 'Click to download'}
+                  </span>
                 </span>
               </button>
             ))}

@@ -8,32 +8,124 @@ const IMAGE_TYPES = new Set([
 const TEXT_EXTENSIONS = new Set([
   '.txt',
   '.md',
+  '.markdown',
   '.json',
   '.js',
   '.jsx',
+  '.mjs',
+  '.cjs',
   '.ts',
   '.tsx',
+  '.mts',
+  '.cts',
+  '.vue',
+  '.svelte',
+  '.astro',
   '.css',
+  '.scss',
+  '.sass',
+  '.less',
   '.html',
+  '.htm',
   '.py',
+  '.pyw',
   '.java',
   '.c',
   '.cpp',
+  '.cc',
+  '.cxx',
   '.h',
+  '.hpp',
+  '.hh',
+  '.cs',
+  '.fs',
+  '.vb',
   '.xml',
   '.yaml',
   '.yml',
   '.csv',
   '.log',
   '.sh',
+  '.bash',
+  '.zsh',
   '.bat',
+  '.cmd',
+  '.ps1',
   '.sql',
   '.env',
   '.toml',
+  '.ini',
+  '.cfg',
+  '.conf',
+  '.properties',
   '.rs',
   '.go',
   '.rb',
   '.php',
+  '.swift',
+  '.kt',
+  '.kts',
+  '.dart',
+  '.lua',
+  '.r',
+  '.pl',
+  '.pm',
+  '.ex',
+  '.exs',
+  '.erl',
+  '.groovy',
+  '.gradle',
+  '.tf',
+  '.tfvars',
+  '.proto',
+  '.graphql',
+  '.gql',
+  '.prisma',
+  '.dockerfile',
+  '.gitignore',
+  '.npmrc',
+  '.editorconfig',
+  '.prettierrc',
+  '.eslintrc',
+  '.lock',
+])
+
+const CODE_MIME_TYPES = new Set([
+  'application/javascript',
+  'application/x-javascript',
+  'text/javascript',
+  'application/json',
+  'application/xml',
+  'text/xml',
+  'application/typescript',
+  'text/typescript',
+  'application/x-sh',
+  'application/sql',
+  'application/x-yaml',
+  'text/yaml',
+  'text/x-python',
+  'text/x-java-source',
+  'text/x-c',
+  'text/x-c++',
+  'text/x-go',
+  'text/x-rust',
+  'text/x-ruby',
+  'text/x-php',
+  'text/x-shellscript',
+])
+
+const KNOWN_CODE_FILENAMES = new Set([
+  'dockerfile',
+  'makefile',
+  'gemfile',
+  'rakefile',
+  'procfile',
+  'vagrantfile',
+  'brewfile',
+  'podfile',
+  'cmakelists.txt',
+  'readme',
+  'license',
 ])
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
@@ -43,6 +135,43 @@ function getExtension(filename) {
   return dot === -1 ? '' : filename.slice(dot).toLowerCase()
 }
 
+function getLanguageTag(filename) {
+  const ext = getExtension(filename)
+  const map = {
+    '.js': 'javascript',
+    '.jsx': 'jsx',
+    '.ts': 'typescript',
+    '.tsx': 'tsx',
+    '.py': 'python',
+    '.rb': 'ruby',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.java': 'java',
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.cs': 'csharp',
+    '.php': 'php',
+    '.swift': 'swift',
+    '.kt': 'kotlin',
+    '.html': 'html',
+    '.css': 'css',
+    '.scss': 'scss',
+    '.json': 'json',
+    '.sql': 'sql',
+    '.sh': 'bash',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.vue': 'vue',
+    '.svelte': 'svelte',
+  }
+  return map[ext] ?? (ext.slice(1) || 'text')
+}
+
+function isKnownCodeFilename(filename) {
+  const base = filename.split(/[/\\]/).pop()?.toLowerCase() ?? ''
+  return KNOWN_CODE_FILENAMES.has(base) || base.startsWith('.')
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -50,6 +179,24 @@ function fileToBase64(file) {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+async function looksLikeTextFile(file) {
+  const slice = file.slice(0, 8192)
+  const buffer = await slice.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+
+  for (const byte of bytes) {
+    if (byte === 0) return false
+  }
+
+  return bytes.length > 0
+}
+
+export function isCodeAttachment(attachment) {
+  if (attachment.type !== 'text') return false
+  const ext = getExtension(attachment.name)
+  return TEXT_EXTENSIONS.has(ext) || isKnownCodeFilename(attachment.name)
 }
 
 export async function processFile(file) {
@@ -80,16 +227,26 @@ export async function processFile(file) {
     }
   }
 
-  if (TEXT_EXTENSIONS.has(ext) || file.type.startsWith('text/')) {
+  const isText =
+    TEXT_EXTENSIONS.has(ext) ||
+    isKnownCodeFilename(file.name) ||
+    CODE_MIME_TYPES.has(file.type) ||
+    file.type.startsWith('text/') ||
+    (await looksLikeTextFile(file))
+
+  if (isText) {
     const content = await file.text()
     return {
       type: 'text',
       name: file.name,
       content,
+      isCode: TEXT_EXTENSIONS.has(ext) || isKnownCodeFilename(file.name) || CODE_MIME_TYPES.has(file.type),
     }
   }
 
-  throw new Error(`${file.name}: unsupported file type. Upload images, PDFs, or text/code files.`)
+  throw new Error(
+    `${file.name}: unsupported file type. Upload code, images, PDFs, or text files.`,
+  )
 }
 
 export function buildApiContent(text, attachments) {
@@ -98,7 +255,8 @@ export function buildApiContent(text, attachments) {
 
   for (const attachment of attachments) {
     if (attachment.type === 'text') {
-      combinedText += `\n\n--- File: ${attachment.name} ---\n${attachment.content}`
+      const lang = getLanguageTag(attachment.name)
+      combinedText += `\n\n--- File: ${attachment.name} ---\n\`\`\`${lang}\n${attachment.content}\n\`\`\``
     }
   }
 

@@ -351,6 +351,48 @@
   gap: 8px;
 }
 
+.input-area.dragging .input-row {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  width: fit-content;
+}
+
+.mode-toggle button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-toggle button.active {
+  background: var(--bg);
+  color: var(--text-h);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.mode-toggle button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pending-attachment.code-file span {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .input-error {
   margin: 0;
   font-size: 13px;

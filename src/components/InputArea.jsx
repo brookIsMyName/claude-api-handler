@@ -1,22 +1,37 @@
 import { useRef, useState } from 'react'
-import { processFile } from '../utils/files'
+import { isCodeAttachment, processFile } from '../utils/files'
 
-export default function InputArea({ onSend, disabled }) {
+export default function InputArea({ onSend, disabled, mode, onModeChange }) {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState([])
   const [fileError, setFileError] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
   const textareaRef = useRef(null)
 
   const handleFiles = async (fileList) => {
+    if (!fileList?.length) return
+
     setFileError(null)
     const files = Array.from(fileList)
+    const results = await Promise.allSettled(files.map(processFile))
+    const processed = []
+    const errors = []
 
-    try {
-      const processed = await Promise.all(files.map(processFile))
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        processed.push(result.value)
+      } else {
+        errors.push(result.reason?.message ?? 'Failed to read file')
+      }
+    }
+
+    if (processed.length) {
       setAttachments((current) => [...current, ...processed])
-    } catch (err) {
-      setFileError(err.message)
+    }
+
+    if (errors.length) {
+      setFileError(errors.join(' · '))
     }
 
     if (fileInputRef.current) {
@@ -51,18 +66,62 @@ export default function InputArea({ onSend, disabled }) {
     }
   }
 
+  const handleDrop = (event) => {
+    event.preventDefault()
+    setIsDragging(false)
+    handleFiles(event.dataTransfer.files)
+  }
+
+  const placeholder =
+    mode === 'debug'
+      ? 'Paste code or describe the bug… (attach .js, .py, .ts, etc.)'
+      : 'Describe the website you want to build…'
+
   return (
-    <div className="input-area">
+    <div
+      className={`input-area ${isDragging ? 'dragging' : ''}`}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setIsDragging(true)
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={handleDrop}
+    >
+      <div className="mode-toggle">
+        <button
+          type="button"
+          className={mode === 'build' ? 'active' : ''}
+          onClick={() => onModeChange('build')}
+          disabled={disabled}
+        >
+          Build
+        </button>
+        <button
+          type="button"
+          className={mode === 'debug' ? 'active' : ''}
+          onClick={() => onModeChange('debug')}
+          disabled={disabled}
+        >
+          Debug
+        </button>
+      </div>
+
       {fileError && <p className="input-error">{fileError}</p>}
 
       {attachments.length > 0 && (
         <div className="pending-attachments">
           {attachments.map((file, index) => (
-            <div key={`${file.name}-${index}`} className="pending-attachment">
+            <div
+              key={`${file.name}-${index}`}
+              className={`pending-attachment ${isCodeAttachment(file) ? 'code-file' : ''}`}
+            >
               {file.type === 'image' && file.preview ? (
                 <img src={file.preview} alt={file.name} />
               ) : (
-                <span>{file.name}</span>
+                <span>
+                  {isCodeAttachment(file) ? '💻 ' : ''}
+                  {file.name}
+                </span>
               )}
               <button
                 type="button"
@@ -83,7 +142,7 @@ export default function InputArea({ onSend, disabled }) {
           className="attach-button"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          title="Attach files"
+          title="Attach code or files"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
@@ -95,18 +154,34 @@ export default function InputArea({ onSend, disabled }) {
           type="file"
           multiple
           hidden
-          accept="image/*,.pdf,.txt,.md,.json,.js,.jsx,.ts,.tsx,.css,.html,.py,.java,.c,.cpp,.xml,.yaml,.yml,.csv,.sql,.sh,.env,.toml,.rs,.go,.rb,.php"
           onChange={(event) => handleFiles(event.target.files)}
         />
 
         <textarea
           ref={textareaRef}
           className="chat-input"
-          placeholder="Describe the website you want to build…"
+          placeholder={placeholder}
           rows={1}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={(event) => {
+            const items = event.clipboardData?.items
+            if (!items) return
+
+            const pastedFiles = []
+            for (const item of items) {
+              if (item.kind === 'file') {
+                const file = item.getAsFile()
+                if (file) pastedFiles.push(file)
+              }
+            }
+
+            if (pastedFiles.length) {
+              event.preventDefault()
+              handleFiles(pastedFiles)
+            }
+          }}
           disabled={disabled}
         />
 
@@ -123,7 +198,11 @@ export default function InputArea({ onSend, disabled }) {
         </button>
       </div>
 
-      <p className="input-hint">Enter to send · Shift+Enter for new line</p>
+      <p className="input-hint">
+        {mode === 'debug'
+          ? 'Attach or drop code files · paste code directly · Enter to send'
+          : 'Enter to send · Shift+Enter for new line'}
+      </p>
     </div>
   )
 }

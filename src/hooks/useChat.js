@@ -1,5 +1,8 @@
 import { useCallback, useState } from 'react'
-import { toApiMessages } from '../utils/files'
+import { isCodeAttachment, toApiMessages } from '../utils/files'
+
+const DEBUG_DEFAULT_PROMPT =
+  'Please debug the attached code. Find the bug(s), explain what is wrong, and deliver the fixed file(s) for download.'
 
 function parseSseChunk(buffer, onEvent) {
   const blocks = buffer.split('\n\n')
@@ -39,11 +42,11 @@ function handleSseEvent(eventType, data, handlers) {
   if (eventType === 'error') throw new Error(data.message)
 }
 
-async function streamChat(messages, handlers) {
+async function streamChat(messages, mode, handlers) {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: toApiMessages(messages) }),
+    body: JSON.stringify({ messages: toApiMessages(messages), mode }),
   })
 
   if (!response.ok) {
@@ -88,11 +91,20 @@ export function useChat() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [activeWebsite, setActiveWebsite] = useState(null)
+  const [mode, setMode] = useState('build')
 
   const sendMessage = useCallback(
     async (text, attachments = []) => {
-      const trimmed = text.trim()
+      let trimmed = text.trim()
+      const hasCode = attachments.some(isCodeAttachment)
+
       if (!trimmed && attachments.length === 0) return
+
+      if (!trimmed && mode === 'debug' && hasCode) {
+        trimmed = DEBUG_DEFAULT_PROMPT
+      } else if (!trimmed && attachments.length > 0) {
+        trimmed = mode === 'debug' ? DEBUG_DEFAULT_PROMPT : 'Please review the attached files.'
+      }
 
       setError(null)
       setStatus(null)
@@ -116,7 +128,7 @@ export function useChat() {
 
       try {
         const history = nextMessages.slice(0, -1)
-        await streamChat(history, {
+        await streamChat(history, mode, {
           onDelta: (delta) => {
             setMessages((current) =>
               current.map((message) =>
@@ -155,7 +167,7 @@ export function useChat() {
         setStatus(null)
       }
     },
-    [messages],
+    [messages, mode],
   )
 
   const clearChat = useCallback(() => {
@@ -170,6 +182,8 @@ export function useChat() {
     isLoading,
     status,
     error,
+    mode,
+    setMode,
     activeWebsite,
     setActiveWebsite,
     sendMessage,
